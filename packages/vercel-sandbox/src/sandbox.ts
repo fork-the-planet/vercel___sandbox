@@ -18,16 +18,20 @@ import { Snapshot } from "./snapshot.js";
 import { consumeReadable } from "./utils/consume-readable.js";
 import { type Credentials, getCredentials } from "./utils/get-credentials.js";
 import {
-  type SandboxSnapshot,
-  toSandboxSnapshot,
-} from "./utils/sandbox-snapshot.js";
-import { getPrivateParams, type WithPrivate } from "./utils/types.js";
-import { FileSystem } from "./filesystem.js";
+    type NetworkPolicy,
+    type NetworkPolicyRule,
+    type NetworkTransformer,
+} from "./network-policy";
+import { convertSandbox, type ConvertedSandbox } from "./utils/convert-sandbox";
 
 export type { NetworkPolicy, NetworkPolicyRule, NetworkTransformer };
 
 /** @inline */
 export interface BaseCreateSandboxParams {
+  /**
+   * The name of the sandbox. If omitted, a random name will be generated.
+   */
+  name?: string;
   /**
    * The source of the sandbox.
    *
@@ -100,6 +104,11 @@ export interface BaseCreateSandboxParams {
    * An AbortSignal to cancel sandbox creation.
    */
   signal?: AbortSignal;
+
+  /**
+   * Whether to enable snapshots on shutdown. Defaults to true.
+   */
+  snapshotOnShutdown?: boolean;
 }
 
 export type CreateSandboxParams =
@@ -372,6 +381,8 @@ export class Sandbox {
       networkPolicy: params?.networkPolicy,
       env: params?.env,
       signal: params?.signal,
+      name: params?.name,
+      snapshotOnShutdown: params?.snapshotOnShutdown,
       ...privateParams,
     });
 
@@ -512,21 +523,6 @@ export class Sandbox {
     const pipeLogs = async (command: Command): Promise<void> => {
       if (!params.stdout && !params.stderr) {
         return;
-      }
-
-      try {
-        for await (const log of command.logs({ signal: params.signal })) {
-          if (log.stream === "stdout") {
-            params.stdout?.write(log.data);
-          } else if (log.stream === "stderr") {
-            params.stderr?.write(log.data);
-          }
-        }
-      } catch (err) {
-        if (params.signal?.aborted) {
-          return;
-        }
-        throw err;
       }
     };
 
