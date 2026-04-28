@@ -27,6 +27,7 @@ import type { Snapshot } from "./snapshot.js";
 import type { SandboxSnapshot } from "./utils/sandbox-snapshot.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import { fromAPINetworkPolicy } from "./utils/network-policy.js";
+import { attachPaginator } from "./utils/paginator.js";
 import { setTimeout } from "node:timers/promises";
 
 export type { NetworkPolicy };
@@ -424,6 +425,15 @@ export class Sandbox {
    * Allow to get a list of sandboxes for a team narrowed to the given params.
    * It returns both the sandboxes and the pagination metadata to allow getting
    * the next page of results.
+   *
+   * The returned object is async-iterable to auto-paginate through all pages:
+   *
+   * ```ts
+   * const result = await Sandbox.list({ namePrefix: "ci-" });
+   * for await (const sandbox of result) { ... }
+   * // or: await result.toArray();
+   * // or: for await (const page of result.pages()) { ... }
+   * ```
    */
   static async list(
     params?: Partial<Parameters<APIClient["listSandboxes"]>[0]> &
@@ -437,11 +447,20 @@ export class Sandbox {
       token: credentials.token,
       fetch: params?.fetch,
     });
-    const response = await client.listSandboxes({
-      ...credentials,
-      ...params,
+    const fetchPage = async (cursor?: string) => {
+      const response = await client.listSandboxes({
+        ...credentials,
+        ...params,
+        ...(cursor !== undefined && { cursor }),
+      });
+      return response.json;
+    };
+    const firstPage = await fetchPage(params?.cursor);
+    return attachPaginator(firstPage, {
+      itemsKey: "sandboxes",
+      fetchNext: fetchPage,
+      signal: params?.signal,
     });
-    return response.json;
   }
 
   /**
@@ -1148,16 +1167,25 @@ export class Sandbox {
     sortOrder?: "asc" | "desc";
     signal?: AbortSignal;
   }) {
-
-    const response = await this.client.listSessions({
-      projectId: this.projectId,
-      name: this.sandbox.name,
-      limit: params?.limit,
-      cursor: params?.cursor,
-      sortOrder: params?.sortOrder,
+    "use step";
+    const client = await this.ensureClient();
+    const fetchPage = async (cursor?: string) => {
+      const response = await client.listSessions({
+        projectId: this.projectId,
+        name: this.sandbox.name,
+        limit: params?.limit,
+        cursor,
+        sortOrder: params?.sortOrder,
+        signal: params?.signal,
+      });
+      return response.json;
+    };
+    const firstPage = await fetchPage(params?.cursor);
+    return attachPaginator(firstPage, {
+      itemsKey: "sessions",
+      fetchNext: fetchPage,
       signal: params?.signal,
     });
-    return response.json;
   }
 
   /**
@@ -1172,16 +1200,25 @@ export class Sandbox {
     sortOrder?: "asc" | "desc";
     signal?: AbortSignal;
   }) {
-
-    const response = await this.client.listSnapshots({
-      projectId: this.projectId,
-      name: this.sandbox.name,
-      limit: params?.limit,
-      cursor: params?.cursor,
-      sortOrder: params?.sortOrder,
+    "use step";
+    const client = await this.ensureClient();
+    const fetchPage = async (cursor?: string) => {
+      const response = await client.listSnapshots({
+        projectId: this.projectId,
+        name: this.sandbox.name,
+        limit: params?.limit,
+        cursor,
+        sortOrder: params?.sortOrder,
+        signal: params?.signal,
+      });
+      return response.json;
+    };
+    const firstPage = await fetchPage(params?.cursor);
+    return attachPaginator(firstPage, {
+      itemsKey: "snapshots",
+      fetchNext: fetchPage,
       signal: params?.signal,
     });
-    return response.json;
   }
 }
 
