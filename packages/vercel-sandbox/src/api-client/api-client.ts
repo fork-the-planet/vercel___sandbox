@@ -5,7 +5,7 @@ import {
   type RequestParams,
 } from "./base-client.js";
 import {
-type CommandFinishedData,
+  type CommandFinishedData,
   SessionAndRoutesResponse,
   SessionResponse,
   StopSessionResponse,
@@ -280,10 +280,24 @@ export class APIClient extends BaseClient {
 
       const iterator = jsonlinesStream[Symbol.asyncIterator]();
       const commandChunk = await iterator.next();
+      if (commandChunk.done) {
+        throw new StreamError(
+          "stream_ended_early",
+          "Stream ended before command data was received",
+          params.sessionId,
+        );
+      }
       const { command } = CommandResponse.parse(commandChunk.value);
 
       const finished = (async () => {
         const finishedChunk = await iterator.next();
+        if (finishedChunk.done) {
+          throw new StreamError(
+            "stream_ended_early",
+            "Stream ended before command finished",
+            params.sessionId,
+          );
+        }
         const { command } = CommandFinishedResponse.parse(finishedChunk.value);
         return command;
       })();

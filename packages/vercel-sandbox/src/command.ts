@@ -66,7 +66,7 @@ export class Command {
   /**
    * ID of the session this command is running in.
    */
-  private sessionId: string;
+  protected sessionId: string;
 
   /**
    * Data for the command execution.
@@ -104,10 +104,11 @@ export class Command {
   }
 
   /**
-   * @param params - Object containing the client, session ID, and command ID.
-   * @param params.client - API client used to interact with the backend.
+   * @param params - Object containing the client, sandbox ID, and command data.
+   * @param params.client - Optional API client. If not provided, will be lazily created using global credentials.
    * @param params.sessionId - The ID of the session where the command is running.
-   * @param params.cmdId - The ID of the command execution.
+   * @param params.cmd - The command data.
+   * @param params.output - Optional cached output to restore (used during deserialization).
    */
   constructor({
     client,
@@ -115,12 +116,12 @@ export class Command {
     cmd,
     output,
   }: {
-    client: APIClient;
+    client?: APIClient;
     sessionId: string;
     cmd: CommandData;
     output?: CommandOutput;
   }) {
-    this.client = client;
+    this._client = client ?? null;
     this.sessionId = sessionId;
     this.cmd = cmd;
     this.exitCode = cmd.exitCode ?? null;
@@ -144,7 +145,7 @@ export class Command {
    */
   static [WORKFLOW_SERIALIZE](instance: Command): SerializedCommand {
     const serialized: SerializedCommand = {
-      sandboxId: instance.sandboxId,
+      sandboxId: instance.sessionId,
       cmd: instance.cmd,
     };
     if (instance._resolvedOutput) {
@@ -164,7 +165,7 @@ export class Command {
    */
   static [WORKFLOW_DESERIALIZE](data: SerializedCommand): Command {
     return new Command({
-      sandboxId: data.sandboxId,
+      sessionId: data.sandboxId,
       cmd: data.cmd,
       output: data.output,
     });
@@ -191,7 +192,12 @@ export class Command {
    * to access output as a string.
    */
   logs(opts?: { signal?: AbortSignal }) {
-    return this.client.getLogs({
+    if (!this._client) {
+      throw new Error(
+        "logs() requires an API client. Call an async method first to initialize the client.",
+      );
+    }
+    return this._client.getLogs({
       sessionId: this.sessionId,
       cmdId: this.cmd.id,
       signal: opts?.signal,
@@ -222,7 +228,7 @@ export class Command {
     const client = await this.ensureClient();
     params?.signal?.throwIfAborted();
 
-    const command = await this.client.getCommand({
+    const command = await client.getCommand({
       sessionId: this.sessionId,
       cmdId: this.cmd.id,
       wait: true,
@@ -230,7 +236,7 @@ export class Command {
     });
 
     return new CommandFinished({
-      client: this.client,
+      client,
       sessionId: this.sessionId,
       cmd: command.json.command,
       exitCode: command.json.command.exitCode,
@@ -337,7 +343,9 @@ export class Command {
    * @returns Promise<void>.
    */
   async kill(signal?: Signal, opts?: { abortSignal?: AbortSignal }) {
-    await this.client.killCommand({
+    "use step";
+    const client = await this.ensureClient();
+    await client.killCommand({
       sessionId: this.sessionId,
       commandId: this.cmd.id,
       signal: resolveSignal(signal ?? "SIGTERM"),
@@ -363,15 +371,15 @@ export class CommandFinished extends Command {
   public exitCode: number;
 
   /**
-   * @param params - Object containing client, session ID, command ID, and exit code.
-   * @param params.client - API client used to interact with the backend.
+   * @param params - Object containing client, sandbox ID, command data, and exit code.
+   * @param params.client - Optional API client. If not provided, will be lazily created using global credentials.
    * @param params.sessionId - The ID of the session where the command ran.
-   * @param params.cmdId - The ID of the command execution.
+   * @param params.cmd - The command data.
    * @param params.exitCode - The exit code of the completed command.
    * @param params.output - Optional cached output to restore (used during deserialization).
    */
   constructor(params: {
-    client: APIClient;
+    client?: APIClient;
     sessionId: string;
     cmd: CommandData;
     exitCode: number;
@@ -409,7 +417,7 @@ export class CommandFinished extends Command {
     data: SerializedCommandFinished,
   ): CommandFinished {
     return new CommandFinished({
-      sandboxId: data.sandboxId,
+      sessionId: data.sandboxId,
       cmd: data.cmd,
       exitCode: data.exitCode,
       output: data.output,

@@ -72,7 +72,7 @@ const makeSandboxMetadata = (): SandboxMetaData => ({
   name: "test-name",
   currentSessionId: "sbx_123",
   persistent: true,
-  status: 'running',
+  status: "running",
   memory: 2048,
   vcpus: 1,
   region: "iad1",
