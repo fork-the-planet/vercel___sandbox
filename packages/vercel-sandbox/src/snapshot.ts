@@ -224,6 +224,51 @@ export class Snapshot {
   }
 
   /**
+   * Fetch the snapshot ancestry tree anchored on a given snapshot.
+   * It returns both the tree nodes and the pagination metadata to allow
+   * walking the next page of results in the same direction.
+   *
+   * The returned object is async-iterable to auto-paginate through all pages
+   * in the direction set by `sortOrder` (`"desc"` walks ancestors, `"asc"`
+   * walks descendants):
+   *
+   * ```ts
+   * const result = await Snapshot.tree({ snapshotId: "snap_abc", sortOrder: "desc" });
+   * for await (const node of result) { ... }
+   * // or: await result.toArray();
+   * // or: for await (const page of result.pages()) { ... }
+   * ```
+   */
+  static async tree(
+    params: { snapshotId: string } &
+      Partial<Parameters<APIClient["getSnapshotTree"]>[0]> &
+      Partial<Credentials> &
+      WithFetchOptions,
+  ) {
+    "use step";
+    const credentials = await getCredentials(params);
+    const client = new APIClient({
+      teamId: credentials.teamId,
+      token: credentials.token,
+      fetch: params.fetch,
+    });
+    const fetchPage = async (snapshotId: string) => {
+      const response = await client.getSnapshotTree({
+        ...credentials,
+        ...params,
+        snapshotId,
+      });
+      return response.json;
+    };
+    const firstPage = await fetchPage(params.snapshotId);
+    return attachPaginator(firstPage, {
+      itemsKey: "snapshots",
+      fetchNext: fetchPage,
+      signal: params.signal,
+    });
+  }
+
+  /**
    * Retrieve an existing snapshot.
    *
    * @param params - Get parameters and optional credentials.
